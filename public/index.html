@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HOScrcpy-Web</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #1a1a2e; color: #eee; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        .header { padding: 12px 24px; background: #16213e; display: flex; align-items: center; gap: 16px; }
+        .header h1 { font-size: 16px; font-weight: 500; }
+        .status { font-size: 12px; padding: 3px 10px; border-radius: 12px; }
+        .status.on { background: #0f3d0f; color: #5f5; }
+        .status.off { background: #3d0f0f; color: #f55; }
+
+        /* device list */
+        #list-view { padding: 40px; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+        .dev-list { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 400px; }
+        .dev-item {
+            padding: 14px 20px; background: #16213e; border-radius: 8px; cursor: pointer;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .dev-item:hover { background: #1a3a5c; }
+        .dev-sn { font-family: monospace; font-size: 14px; }
+        .dev-act { font-size: 12px; color: #888; }
+        .hint { color: #666; font-size: 14px; }
+        .btn { padding: 8px 20px; background: #0f3460; border: none; color: #eee; border-radius: 6px; cursor: pointer; font-size: 13px; }
+        .btn:hover { background: #1a4a80; }
+
+        /* stream */
+        #stream-view { display: none; flex-direction: column; align-items: center; padding: 12px; gap: 10px; }
+        .top-bar { width: 100%; max-width: 800px; display: flex; align-items: center; gap: 10px; }
+        .back { background: none; border: none; color: #888; cursor: pointer; font-size: 13px; padding: 4px 8px; }
+        .back:hover { color: #eee; }
+
+        /* control buttons */
+        .controls {
+            display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+            background: #16213e; padding: 10px 16px; border-radius: 8px; width: 100%; max-width: 800px;
+        }
+        .ctrl-btn {
+            width: 48px; height: 48px; border-radius: 50%; border: 1px solid #2a3a5e;
+            background: #1a2a4e; color: #ccc; cursor: pointer; font-size: 11px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+            transition: background 0.15s;
+        }
+        .ctrl-btn:hover { background: #2a4a7e; color: #fff; }
+        .ctrl-btn:active { background: #3a5a8e; }
+        .ctrl-btn svg { width: 20px; height: 20px; fill: currentColor; }
+
+        .screen-wrap { position: relative; background: #000; border-radius: 8px; overflow: hidden; }
+        canvas { display: block; max-width: 100%; max-height: 70vh; cursor: pointer; }
+        .loading-overlay {
+            position: absolute; inset: 0; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 12px;
+            background: rgba(0,0,0,0.7); color: #aaa; font-size: 14px; z-index: 2;
+        }
+        .spinner {
+            width: 32px; height: 32px; border: 3px solid #333;
+            border-top-color: #5af; border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-overlay.hidden { display: none; }
+        .dot {
+            position: absolute; width: 20px; height: 20px; border-radius: 50%;
+            background: rgba(255,255,255,0.3); pointer-events: none;
+            transform: translate(-50%, -50%); display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>HOScrcpy-Web</h1>
+        <span class="status off" id="st">Disconnected</span>
+    </div>
+
+    <div id="list-view">
+        <div class="dev-list" id="dev-list"><div class="hint">Loading...</div></div>
+        <button class="btn" onclick="load()">Refresh</button>
+    </div>
+
+    <div id="stream-view">
+        <div class="top-bar">
+            <button class="back" onclick="goBack()">&#8592; Back</button>
+        </div>
+
+        <div class="screen-wrap">
+            <canvas id="c"></canvas>
+            <div class="loading-overlay" id="loading">
+                <div class="spinner"></div>
+                <span>正在连接设备...</span>
+            </div>
+            <div class="dot" id="dot"></div>
+        </div>
+
+        <div class="controls">
+            <button class="ctrl-btn" onclick="sendKey('back')" title="Back">
+                <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+            </button>
+            <button class="ctrl-btn" onclick="sendKey('home')" title="Home">
+                <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+            </button>
+            <button class="ctrl-btn" onclick="sendKey('volup')" title="Volume Up">
+                <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+            </button>
+            <button class="ctrl-btn" onclick="sendKey('voldown')" title="Volume Down">
+                <svg viewBox="0 0 24 24"><path d="M18.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"/></svg>
+            </button>
+            <button class="ctrl-btn" onclick="sendKey('power')" title="Power">
+                <svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z"/></svg>
+            </button>
+            <button class="ctrl-btn" onclick="if(confirm('确定要重启设备吗？'))sendKey('reboot')" title="Reboot">
+                <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const listView = document.getElementById('list-view');
+        const streamView = document.getElementById('stream-view');
+        const devList = document.getElementById('dev-list');
+        const canvas = document.getElementById('c');
+        const ctx = canvas.getContext('2d');
+        const stEl = document.getElementById('st');
+        const dot = document.getElementById('dot');
+        const loadingEl = document.getElementById('loading');
+
+        let ws = null;
+        let currentSn = null;
+        let imgW = 0, imgH = 0;
+
+        // ========== URL routing ==========
+
+        function parseSn() {
+            const m = location.pathname.match(/^\/sn=(.+)$/);
+            return m ? decodeURIComponent(m[1]) : null;
+        }
+
+        function showList() {
+            if (ws) { ws.close(); ws = null; }
+            currentSn = null;
+            streamView.style.display = 'none';
+            listView.style.display = 'flex';
+            document.title = 'HOScrcpy-Web';
+            stEl.textContent = 'Disconnected';
+            stEl.className = 'status off';
+            loadingEl.classList.add('hidden');
+            load();
+        }
+
+        function showStream(sn) {
+            currentSn = sn;
+            listView.style.display = 'none';
+            streamView.style.display = 'flex';
+            document.title = sn + ' - HOScrcpy';
+            connect(sn);
+        }
+
+        // back/forward button support
+        window.addEventListener('popstate', () => {
+            const sn = parseSn();
+            if (sn && sn !== currentSn) {
+                if (ws) { ws.close(); ws = null; }
+                showStream(sn);
+            } else if (!sn) {
+                showList();
+            }
+        });
+
+        (function init() {
+            const sn = parseSn();
+            if (sn) {
+                showStream(sn);
+            } else {
+                listView.style.display = 'flex';
+                streamView.style.display = 'none';
+                load();
+            }
+        })();
+
+        // ========== Device list ==========
+
+        async function load() {
+            devList.innerHTML = '<div class="hint">Loading...</div>';
+            try {
+                const res = await fetch('/api/devices');
+                const devices = await res.json();
+                if (!devices.length) {
+                    devList.innerHTML = '<div class="hint">No devices. Connect via HDC first.</div>';
+                    return;
+                }
+                devList.innerHTML = devices.map(d =>
+                    `<div class="dev-item" onclick="goStream('${d.sn}')">
+                        <span class="dev-sn">${d.sn}</span>
+                        <span class="dev-act">Connect &#8594;</span>
+                    </div>`
+                ).join('');
+            } catch (e) {
+                devList.innerHTML = '<div class="hint">Failed to load</div>';
+            }
+        }
+
+        function goStream(sn) {
+            history.pushState({ sn }, '', '/sn=' + encodeURIComponent(sn));
+            showStream(sn);
+        }
+
+        function goBack() {
+            history.back();
+        }
+
+        // ========== Stream ==========
+
+        function connect(sn) {
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${proto}//${location.host}?sn=${sn}`);
+            ws.binaryType = 'blob';
+
+            loadingEl.classList.remove('hidden');
+            loadingEl.querySelector('span').textContent = '正在连接设备...';
+            stEl.textContent = 'Connecting...';
+            stEl.className = 'status off';
+
+            ws.onopen = () => {
+                stEl.textContent = sn;
+                stEl.className = 'status on';
+                loadingEl.querySelector('span').textContent = '正在启动画面采集...';
+            };
+
+            ws.onmessage = (msg) => {
+                if (msg.data instanceof Blob) {
+                    loadingEl.classList.add('hidden');
+                    enqueueImage(msg.data);
+                }
+            };
+
+            ws.onclose = () => {
+                loadingEl.classList.add('hidden');
+                stEl.textContent = 'Disconnected';
+                stEl.className = 'status off';
+            };
+            ws.onerror = () => ws.close();
+        }
+
+        // ========== Smooth rendering with queue ==========
+
+        let rendering = false;
+        let latestBlob = null;
+        const img = new Image();
+
+        function enqueueImage(blob) {
+            latestBlob = blob;
+            if (!rendering) renderNext();
+        }
+
+        function renderNext() {
+            if (!latestBlob) { rendering = false; return; }
+            rendering = true;
+            const blob = latestBlob;
+            latestBlob = null;
+            const url = URL.createObjectURL(blob);
+            img.onload = () => {
+                if (canvas.width !== img.width || canvas.height !== img.height) {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    imgW = img.width;
+                    imgH = img.height;
+                }
+                ctx.drawImage(img, 0, 0);
+                URL.revokeObjectURL(url);
+                renderNext();
+            };
+            img.onerror = () => { URL.revokeObjectURL(url); rendering = false; };
+            img.src = url;
+        }
+
+        // ========== Device controls ==========
+
+        function sendKey(key) {
+            if (!ws || ws.readyState !== 1) return;
+            ws.send(JSON.stringify({ type: 'key', key }));
+        }
+
+        // ========== Touch ==========
+
+        function getPt(e) {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left, y = e.clientY - rect.top;
+            const sx = canvas.width / rect.width, sy = canvas.height / rect.height;
+            const px = Math.floor(x * sx), py = Math.floor(y * sy);
+            if (px < 0 || py < 0 || px >= imgW || py >= imgH) return null;
+            return { x: px, y: py };
+        }
+
+        function sendTouch(ev, e) {
+            const p = getPt(e);
+            if (!p || !ws || ws.readyState !== 1) return;
+            dot.style.left = e.offsetX + 'px';
+            dot.style.top = e.offsetY + 'px';
+            dot.style.display = ev === 'up' ? 'none' : 'block';
+            ws.send(JSON.stringify({ type: 'touch', event: ev, x: p.x, y: p.y }));
+        }
+
+        canvas.addEventListener('mousedown', e => sendTouch('down', e));
+        canvas.addEventListener('mousemove', e => { if (e.buttons === 1) sendTouch('move', e); });
+        canvas.addEventListener('mouseup', e => sendTouch('up', e));
+    </script>
+</body>
+</html>
