@@ -4,28 +4,59 @@ Browser-based remote screen mirror for HarmonyOS devices.
 
 ## Prerequisites
 
-- Node.js >= 14
-- Java >= 8
-- HDC in PATH (or set `HDC_PATH` env var)
-- Device connected via HDC
+- [Node.js](https://nodejs.org/) >= 14
+- [Java JDK](https://adoptium.net/) >= 8
+- HDC (HarmonyOS Device Connector) in PATH
 
-## Quick Start
+## Setup
+
+### 1. Clone
 
 ```bash
-# Set HDC path if not in PATH (adjust to your local path)
+git clone https://github.com/wenjingchao1101/HOScrcpy-web.git
+cd HOScrcpy-web
+```
+
+### 2. Install npm dependencies
+
+```bash
+npm install
+```
+
+### 3. Compile Java
+
+Compile `StreamBridge.java` against the jar in `lib/`:
+
+```bash
 # Windows
-set HDC_PATH=C:\path\to\hdc
+javac -cp lib\hosScrcpy-1.0.15-beta.jar -d out src\StreamBridge.java
+
+# Linux/macOS
+javac -cp lib/hosScrcpy-1.0.15-beta.jar -d out src/StreamBridge.java
+```
+
+### 4. Set HDC path
+
+If `hdc` is not in your system PATH, set the environment variable:
+
+```bash
+# Windows
+set HDC_PATH=C:\path\to\hdc.exe
+
 # Linux/macOS
 export HDC_PATH=/path/to/hdc
+```
 
-# Start
+### 5. Start
+
+```bash
 npm start
 ```
 
 ## Usage
 
 - Device list: `http://127.0.0.1:8002`
-- Direct connect: `http://127.0.0.1:8002/sn=FMR0224122000466`
+- Direct connect: `http://127.0.0.1:8002/sn=<device_sn>`
 
 ## Features
 
