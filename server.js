@@ -41,19 +41,53 @@ app.get('/api/devices', async (req, res) => {
 
 // ========== HDC ==========
 
-function hdcCommand(args) {
+function hdcCommand(args, timeout = 5000) {
     return new Promise((resolve, reject) => {
         const proc = spawn(HDC_PATH, args, { shell: true });
         let stdout = '', stderr = '';
         proc.stdout.on('data', d => stdout += d);
         proc.stderr.on('data', d => stderr += d);
-        const timer = setTimeout(() => { proc.kill(); reject('timeout'); }, 5000);
+        const timer = setTimeout(() => { proc.kill(); reject('timeout'); }, timeout);
         proc.on('close', code => {
             clearTimeout(timer);
             code === 0 ? resolve(stdout.trim()) : reject(stderr || `exit ${code}`);
         });
         proc.on('error', e => { clearTimeout(timer); reject(e); });
     });
+}
+
+// Check screen state and wake up if screen is off
+async function ensureScreenOn(sn) {
+    try {
+        // Query power state via hidumper
+        const output = await hdcCommand(['-t', sn, 'shell', 'hidumper', '-s', 'PowerManagerService', '-a', '-s']);
+        // If screen state shows OFF or SLEEP, wake it up
+        if (output && (output.includes('State: OFF') || output.includes('State: SLEEP') || output.includes('Screen state: OFF'))) {
+            console.log(`[wake] Screen is off for ${sn}, waking up...`);
+            // Try power-shell wakeup first (HarmonyOS 4+)
+            try {
+                await hdcCommand(['-t', sn, 'shell', 'power-shell', 'wakeup'], 3000);
+                console.log(`[wake] Sent wakeup command to ${sn}`);
+            } catch (e) {
+                // Fallback: send power key event via uinput
+                await hdcCommand(['-t', sn, 'shell', 'uinput', '-K', '-d', '18', '-u', '18'], 3000);
+                console.log(`[wake] Sent power key to ${sn}`);
+            }
+            // Small delay to let screen fully wake up
+            await new Promise(r => setTimeout(r, 500));
+        } else {
+            console.log(`[wake] Screen is already on for ${sn}`);
+        }
+    } catch (e) {
+        // If we can't determine state, try wakeup anyway as a safety measure
+        console.log(`[wake] Could not check screen state for ${sn}, attempting wakeup...`);
+        try {
+            await hdcCommand(['-t', sn, 'shell', 'uinput', '-K', '-d', '18', '-u', '18'], 3000);
+            await new Promise(r => setTimeout(r, 500));
+        } catch (e2) {
+            console.log(`[wake] Wakeup attempt failed for ${sn}: ${e2}`);
+        }
+    }
 }
 
 // ========== WebSocket ==========
@@ -68,7 +102,9 @@ wss.on('connection', (ws, req) => {
 
     console.log(`[ws] connect: ${sn}`);
 
-    hdcCommand(['-t', sn, 'shell', 'ifconfig'])
+    // First ensure screen is on, then get IP and start bridge
+    ensureScreenOn(sn)
+        .then(() => hdcCommand(['-t', sn, 'shell', 'ifconfig']))
         .then(output => {
             const match = output.match(/inet\s+(\d+\.\d+\.\d+\.\d+)/);
             startBridge(ws, match ? match[1] : '127.0.0.1', sn);
